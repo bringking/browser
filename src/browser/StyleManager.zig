@@ -871,6 +871,13 @@ pub fn position(self: *StyleManager, el: *Element) Position {
     return self.flowProps(el).position;
 }
 
+/// `position: fixed` or `sticky` on `el` or on a box above it.
+pub fn isOverlay(self: *StyleManager, el: *Element) bool {
+    self.assertOwns(el);
+    self.rebuildIfDirty() catch return false;
+    return self.flowProps(el).in_overlay;
+}
+
 /// Overflow along x is clipped or scrolled within the box, so it doesn't
 /// widen the ancestors' scrollable area.
 pub fn clipsOverflowX(self: *StyleManager, el: *Element) bool {
@@ -963,7 +970,7 @@ fn geometryProps(self: *StyleManager, el: *Element) Geometry.Computed {
 
 /// Callers must have run rebuildIfDirty, which resets the memo.
 fn flowProps(self: *StyleManager, el: *Element) Flow.Computed {
-    return self.flow.ownProps(self.arena.allocator(), el, self.frame);
+    return self.flow.inheritedProps(self.arena.allocator(), el, self.frame);
 }
 
 /// Taken before the arena resets, to presize the new containers.
@@ -1973,6 +1980,10 @@ pub const Position = enum(u3) {
         return self == .absolute or self == .fixed;
     }
 
+    fn isOverlay(self: Position) bool {
+        return self == .fixed or self == .sticky;
+    }
+
     /// The computed-value keyword, as getComputedStyle reports it.
     pub fn keyword(self: Position) []const u8 {
         return @tagName(self);
@@ -1997,9 +2008,23 @@ const Flow = struct {
         }
     };
 
-    const Computed = packed struct(u4) {
+    pub const Cascaded = struct {
         position: Position = .static,
         floated: bool = false,
+    };
+
+    const Computed = packed struct(u5) {
+        position: Position = .static,
+        floated: bool = false,
+        in_overlay: bool = false, // This element or an ancestor
+
+        fn resolve(own: Cascaded, parent: Computed) Computed {
+            return .{
+                .position = own.position,
+                .floated = own.floated,
+                .in_overlay = own.position.isOverlay() or parent.in_overlay,
+            };
+        }
     };
 };
 
